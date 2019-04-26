@@ -38,7 +38,9 @@ import com.sdl.odata.api.edm.model.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.beans.PropertyDescriptor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.time.Period;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -307,6 +309,34 @@ public final class EntityDataModelUtil {
     }
 
     /**
+     * Gets the OData type name of the property; if the property is a collection, gets the OData type name of the
+     * elements of the collection.
+     *
+     * @param property The property.
+     * @return The OData type name of the property; if the property is a collection, the OData type name of the elements
+     * of the collection.
+     */
+    public static Class<?> getPropertyJavaType(StructuralProperty property) {
+        return property.getJavaField() != null ?
+                property.getJavaField().getType() :
+                property.getPropertyDescriptor().getReadMethod().getReturnType();
+    }
+
+    /**
+     * Gets the OData type name of the property; if the property is a collection, gets the OData type name of the
+     * elements of the collection.
+     *
+     * @param property The property.
+     * @return The OData type name of the property; if the property is a collection, the OData type name of the elements
+     * of the collection.
+     */
+    public static java.lang.reflect.Type getPropertyJavaGenericType(StructuralProperty property) {
+        return property.getJavaField() != null ?
+                property.getJavaField().getGenericType() :
+                property.getPropertyDescriptor().getReadMethod().getGenericReturnType();
+    }
+
+    /**
      * Gets the OData type of the property; if the property is a collection, gets the OData type of the elements of the
      * collection.
      *
@@ -327,11 +357,16 @@ public final class EntityDataModelUtil {
      * @return The value of the property.
      */
     public static Object getPropertyValue(StructuralProperty property, Object object) {
+        PropertyDescriptor prop = property.getPropertyDescriptor();
         Field field = property.getJavaField();
-        field.setAccessible(true);
+
         try {
+            if (prop != null && prop.getReadMethod() != null) {
+                return prop.getReadMethod().invoke(object);
+            }
+            field.setAccessible(true);
             return field.get(object);
-        } catch (IllegalAccessException e) {
+        } catch (IllegalAccessException | InvocationTargetException e) {
             throw new ODataSystemException("Cannot read property: " + property + " of object: " + object, e);
         }
     }
@@ -344,11 +379,16 @@ public final class EntityDataModelUtil {
      * @param value    The value to set.
      */
     public static void setPropertyValue(StructuralProperty property, Object object, Object value) {
+        PropertyDescriptor prop = property.getPropertyDescriptor();
         Field field = property.getJavaField();
-        field.setAccessible(true);
         try {
+            if (prop != null && prop.getWriteMethod() != null) {
+                prop.getWriteMethod().invoke(object, value);
+                return;
+            }
+            field.setAccessible(true);
             field.set(object, value);
-        } catch (IllegalAccessException e) {
+        } catch (IllegalAccessException | InvocationTargetException e) {
             throw new ODataSystemException("Cannot write property: " + property + " of object: " + object, e);
         }
     }
@@ -363,7 +403,9 @@ public final class EntityDataModelUtil {
      * @return A new instance of a collection type that is compatible with the specified property.
      */
     public static Collection<Object> createPropertyCollection(StructuralProperty property) {
-        Class<?> fieldType = property.getJavaField().getType();
+        Class<?> fieldType = property.getJavaField() != null ?
+                property.getJavaField().getType() :
+                property.getPropertyDescriptor().getPropertyType();
         if (List.class.isAssignableFrom(fieldType)) {
             return new ArrayList<>();
         } else if (Set.class.isAssignableFrom(fieldType)) {
@@ -735,20 +777,20 @@ public final class EntityDataModelUtil {
                 LOG.error("Not possible to retrieve entity key for entity " + entity);
                 throw new ODataEdmException("Entity key is not found for " + entity);
             }
-        } catch (ReflectiveOperationException e) {
-            LOG.error("Not possible to retrieve entity key for entity " + entity, e);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            LOG.error("Not possible to retrieve entity key for entity " + entity);
             throw new ODataEdmException("Not possible to retrieve entity key for entity " + entity, e);
         }
     }
 
     private static String getKeyValueFromPropertyRef(EntityDataModel entityDataModel, Object entity,
                                                      PropertyRef propertyRef)
-            throws IllegalAccessException, ODataEdmException {
+            throws IllegalAccessException, InvocationTargetException, ODataEdmException {
 
         EntityType entityType = getAndCheckEntityType(entityDataModel, entity.getClass());
-        Field field = entityType.getStructuralProperty(propertyRef.getPath()).getJavaField();
-        field.setAccessible(true);
-        Object value = field.get(entity);
+        StructuralProperty prop = entityType.getStructuralProperty(propertyRef.getPath());
+        Object value = getPropertyValue(prop, entity);
+
         if (value instanceof String) {
             return String.format("'%s'", ((String) value).replaceAll("'", "''"));
         } else if (value instanceof Period) {
