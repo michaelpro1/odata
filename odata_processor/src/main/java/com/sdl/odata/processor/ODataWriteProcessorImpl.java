@@ -46,6 +46,9 @@ public class ODataWriteProcessorImpl implements ODataWriteProcessor {
     @Autowired
     private DataSourceFactory dataSourceFactory;
 
+    @Autowired
+    private ProcessorConfiguration configuration;
+
     @Override
     public ProcessorResult write(ODataRequestContext requestContext, Object entity) throws ODataException {
         try {
@@ -67,15 +70,16 @@ public class ODataWriteProcessorImpl implements ODataWriteProcessor {
             case POST:
                 if (ODataUriUtil.isActionCallUri(requestContext.getUri())) {
                     LOG.debug("Invoking Action POST method handler");
-                    return new ActionPostMethodHandler(requestContext, dataSourceFactory);
+                    return new ActionPostMethodHandler(requestContext, dataSourceFactory, configuration);
+                } else {
+                    return new PostMethodHandler(requestContext, dataSourceFactory, configuration);
                 }
-                return new PostMethodHandler(requestContext, dataSourceFactory);
             case PUT:
-                return new PutMethodHandler(requestContext, dataSourceFactory);
+                return new PutMethodHandler(requestContext, dataSourceFactory, configuration);
             case PATCH:
-                return new PatchMethodHandler(requestContext, dataSourceFactory);
+                return new PatchMethodHandler(requestContext, dataSourceFactory, configuration);
             case DELETE:
-                return new DeleteMethodHandler(requestContext, dataSourceFactory);
+                return new DeleteMethodHandler(requestContext, dataSourceFactory, configuration);
             default:
                 LOG.error("Invalid HTTP method: {}", method);
         }
